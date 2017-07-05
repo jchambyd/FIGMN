@@ -30,7 +30,7 @@ public class FIGMN extends AbstractClassifier implements Serializable, Additiona
     private double attrSelection = 1;
     protected double beta = Double.MIN_VALUE;
     protected double delta = 1;//0.3;
-    private double prune = Double.POSITIVE_INFINITY;
+    private double prune = 1;//Double.POSITIVE_INFINITY;
     protected double chisq = Double.NaN;
     private int inputLength = -1;
     static final long serialVersionUID = 3932117032546553728L;
@@ -275,7 +275,7 @@ public class FIGMN extends AbstractClassifier implements Serializable, Additiona
         
 		for (int i = 0; i < s; i++) 
 		{
-            posteriors[i] = Math.exp(activations[i] + Math.log(getPrior(i)));
+            posteriors[i] = Math.exp(activations[i] + Math.log(this.getPrior(i)));
             total += posteriors[i];
         }
         for (int i = 0; i < s; i++) 
@@ -383,10 +383,15 @@ public class FIGMN extends AbstractClassifier implements Serializable, Additiona
         double[] activations = getPosteriors(x.clone());
         double highP = max(activations);
         
+		for (int i = s - 1; i >= 0; i--) 
+		{
+			this.distributions.get(i).age++;
+		}
+		
         for (int i = s - 1; i >= 0; i--) 
 		{
             if (!this.skipComponents || activations[i] >= meanP || activations[i] >= highP) {
-                updateComponent(i, x, 1);
+                updateComponent(i, x, activations[i]);
                 break;
             }
         }
@@ -412,7 +417,6 @@ public class FIGMN extends AbstractClassifier implements Serializable, Additiona
         mean.add(diff);
         input.add(-1, mean);
         DenseMatrix invCov = new DenseMatrix(mvn.invCov);
-        DenseVector newdiag = null;
         double logdet;
         
 		invCov.scale(1.0 / (1 - learningRate));
@@ -425,7 +429,7 @@ public class FIGMN extends AbstractClassifier implements Serializable, Additiona
 			if (Double.isInfinite(logdet)) 
 				logdet = Double.MAX_VALUE;
 			mvn.invCov = invCov;
-			mvn.age++;
+			//mvn.age++;
 			mvn.features = null;
 			
 			if (Double.isNaN(logdet) || Double.isInfinite(logdet)) 
@@ -577,11 +581,11 @@ public class FIGMN extends AbstractClassifier implements Serializable, Additiona
         double highP = max(p);
         DenseVector r = new DenseVector(new double[input.length]);
         double total = 0;
-        for (int i = 0; i < s; i++) 
+        for (int i = 0; i < s; i++)
 		{
-            if (!skipComponents || p[i] >= meanP || p[i] >= highP) 
+            if (!this.skipComponents || p[i] >= meanP || p[i] >= highP) 
 			{
-                r.add(p[i], new DenseVector(recallFor(i,input)));
+                r.add(p[i], new DenseVector(this.recallFor(i, input)));
                 total += p[i];
             }            
         }
@@ -644,6 +648,7 @@ public class FIGMN extends AbstractClassifier implements Serializable, Additiona
         int bStart = l-noutputs, bLength = noutputs, bEnd = l-1;
         DenseVector ma;
         DenseMatrix cba;
+		
         if (this.attrSelection < 1) 
 		{
             mvn.features = null;
@@ -861,12 +866,22 @@ public class FIGMN extends AbstractClassifier implements Serializable, Additiona
             for (int i = 0; i < data.length; i++) 
 			{
                 double[] input = data[i].clone();
-                input[c] = Double.NaN;
+				
+				for(int j = c; j < 7; j++)
+					input[j] = Double.NaN;
+				
+                //input[c] = Double.NaN;
                 double[] result = igmn.recall(input);
-                double err_ = Math.pow(result[c] - data[i][c],2);
+				
+				double err_ = 0;
+				for(int j = c; j < 7; j++)
+					err_ += Math.pow(result[j] - data[i][j], 2);
+				
+                //double err_ = Math.pow(result[c] - data[i][c],2);
                 System.out.println("#"+i+" Target: " + data[i][c] + " Output: " + result[c] + " Error: " + err_ + " Reconstruction: " + Arrays.toString(result));
                 err += err_;
-                if (err_ != 0) errcount++;
+                if (err_ != 0) 
+					errcount++;
             }
             err /= data.length;
             System.out.println("MSE: " + err + " Errors: " + errcount + " Accuracy: " + (data.length - errcount)/(double)data.length);
@@ -971,6 +986,4 @@ public class FIGMN extends AbstractClassifier implements Serializable, Additiona
 			return this.numberOfClusters();
         return Double.NaN;
     }
-    
-
 }
