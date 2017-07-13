@@ -9,6 +9,7 @@ import java.util.Arrays;
 import java.util.Enumeration;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import javax.swing.plaf.basic.BasicInternalFrameTitlePane;
 import no.uib.cipr.matrix.DenseMatrix;
 import no.uib.cipr.matrix.DenseVector;
 import no.uib.cipr.matrix.Matrices;
@@ -36,6 +37,7 @@ public class FIGMN extends AbstractClassifier implements Serializable, Additiona
     static final long serialVersionUID = 3932117032546553728L;
     int cores;
     public boolean useDiagonal = false;
+	
     
     public FIGMN() 
 	{
@@ -849,16 +851,16 @@ public class FIGMN extends AbstractClassifier implements Serializable, Additiona
         DataSource source;
         try 
 		{
-            source = new DataSource("data/iris.arff");
+            source = new DataSource("data/elecNormNew_norm.arff");
             Instances dt = source.getDataSet();
             //dt.randomize(new Random());
             if (dt.classIndex() == -1)
                dt.setClassIndex(dt.numAttributes() - 1);
             double[][] data;
             data = FIGMN.instancesToDoubleArrays(dt);
-            FIGMN igmn = new FIGMN(data,0.1);
+            FIGMN igmn = new FIGMN(data, 0.1);
             igmn.verbose = false;
-            igmn.learn(data);
+            igmn.learn(data[0].clone());
             System.out.println("# of Components: ["+igmn.distributions.size() + "] List: " + igmn.distributions);
             int c = dt.classIndex();
             double err = 0;
@@ -867,21 +869,29 @@ public class FIGMN extends AbstractClassifier implements Serializable, Additiona
 			{
                 double[] input = data[i].clone();
 				
-				for(int j = c; j < 7; j++)
+				for(int j = c; j < input.length; j++)
 					input[j] = Double.NaN;
 				
                 //input[c] = Double.NaN;
                 double[] result = igmn.recall(input);
 				
-				double err_ = 0;
-				for(int j = c; j < 7; j++)
-					err_ += Math.pow(result[j] - data[i][j], 2);
+				double result_tmp [] = new double[result.length - c];
+				
+				result_tmp[maxElement(result, c)] = 1;
+				
+				for(int j = c; j < input.length; j++)
+				{
+					if(result_tmp[j - c] != data[i][j])
+					{
+						errcount++;
+						break;
+					}
+				}
+				
+				igmn.learn(data[i].clone());
 				
                 //double err_ = Math.pow(result[c] - data[i][c],2);
-                System.out.println("#"+i+" Target: " + data[i][c] + " Output: " + result[c] + " Error: " + err_ + " Reconstruction: " + Arrays.toString(result));
-                err += err_;
-                if (err_ != 0) 
-					errcount++;
+                //System.out.println("#"+i+" Target: " + Arrays.toString(data[i]) + " Reconstruction: " + Arrays.toString(result_tmp));
             }
             err /= data.length;
             System.out.println("MSE: " + err + " Errors: " + errcount + " Accuracy: " + (data.length - errcount)/(double)data.length);
@@ -892,6 +902,21 @@ public class FIGMN extends AbstractClassifier implements Serializable, Additiona
         }
     }
 
+	public static int maxElement(double [] arr, int begin)
+	{
+		int index = begin; 
+		double value = arr[begin];
+		
+		for (int i = begin + 1; i < arr.length; i++) {
+			if(value < arr[i])
+			{
+				index = i;
+				value = arr[i];
+			}
+		}
+		return index - begin;
+	}
+	
     
     public int numberOfClusters() 
 	{
