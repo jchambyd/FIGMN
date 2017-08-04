@@ -1,0 +1,540 @@
+/**
+* =============================================================================
+* Federal University of Rio Grande do Sul (UFRGS)
+* Connectionist Artificial Intelligence Laboratory (LIAC)
+* Edigleison F. Carvalho - edigleison.carvalho@inf.ufrgs.br
+* =============================================================================
+* Copyright (c) 2012 Edigleison F. Carvalho, edigleison.carvalho at gmail dot com
+* 
+* Permission is hereby granted, free of charge, to any person obtaining a copy 
+* of this software and associated documentation files (the "Software"), to deal 
+* in the Software without restriction, including without limitation the rights 
+* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell 
+* copies of the Software, and to permit persons to whom the Software is 
+* furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in 
+* all copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE 
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER 
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, 
+* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE 
+* SOFTWARE.
+* =============================================================================
+*/
+
+package liac.igmn.core;
+import java.util.ArrayList;
+import java.util.List;
+import liac.igmn.util.MatrixUtil;
+import org.ejml.simple.SimpleMatrix;
+
+public class IGMN
+{
+	/**
+	 * Armazena a probabilidade a priori de cada componente numa matriz coluna
+	 */
+	protected SimpleMatrix priors;
+	/**
+	 * Armazena os vetores media de cada componente 
+	 */
+	protected List<SimpleMatrix> means;
+	/**
+	 * Armazena a inversa da matriz de covariancia de cada componente
+	 */
+	protected List<SimpleMatrix> invCovs;
+	/**
+	 * Armazena a determinante da matriz de covariancia de cada componente
+	 */
+	protected SimpleMatrix detCovs;
+	/**
+	 * Armazena a soma das probabilidades a posteriori de cada componente numa matriz coluna
+	 */
+	protected SimpleMatrix sps;
+	/**
+	 * Armazena a verossimilhanca <p(x|j)> do ultimo vetor de entrada para cada componente numa matriz coluna
+	 */
+	protected SimpleMatrix like;
+	/** 
+	 * Armazena a probabilidade a posteriori <p(j|x)> do ultimo vetor de entrada para cada componente numa matriz coluna 
+	 */
+	protected SimpleMatrix post;
+	/**
+	 * Armazena a idade de cada componente numa matriz coluna
+	 */
+	protected SimpleMatrix vs;
+	/**
+	 * Armazena a dimensao do vetor de entrada
+	 */
+	protected int dimension;
+	/**
+	 * Armazena o numero de componentes 
+	 */
+	protected int size;
+	/**
+	 * Armazena o range do vetor de entrada
+	 */
+	protected SimpleMatrix dataRange;
+	/**
+	 * Parametro de ajuste do tamanho inicial da matriz de covariancia
+	 */
+	protected double delta;
+	/**
+	 * Parametro de ajuste da distancia minima aceitavel pelo componente
+	 */
+	protected double tau;
+	/**
+	 * Parametro de ajuste da ativacao minima de um componente para nao ser considerado como spurious
+	 */
+	protected double spMin;
+	/**
+	 * Parametro de ajuste da idade minima de um componente para poder ser detectado como spurious
+	 */
+	protected double vMin;
+	/**
+	 * Constante para definir o menor valor da verossimilhanca
+	 */
+	protected float eta;
+	/**
+	 * Inversa da matriz de covarianza inicial de cada componente
+	 */
+	protected SimpleMatrix invSigmaIni;
+	/**
+	 * Determinante da matriz de covarianza inicial de cada componente
+	 */
+	protected double detSigmaIni;
+	
+	public IGMN(SimpleMatrix dataRange, double tau, double delta, double spMin, double vMin)
+	{
+		this.dataRange = dataRange;
+		this.dimension = dataRange.getNumElements();
+		this.size = 0;
+		this.priors = new SimpleMatrix(0, 0);
+		this.means = new ArrayList<>();
+		this.invCovs = new ArrayList<>();
+		this.detCovs = new SimpleMatrix(0, 0);
+		this.sps = new SimpleMatrix(0, 0);
+		this.like = new SimpleMatrix(0, 0);
+		this.post = new SimpleMatrix(0, 0);
+		this.vs = new SimpleMatrix(0, 0);
+		this.delta = delta;
+		this.tau = tau;
+		this.spMin = spMin;
+		this.vMin = vMin;
+		this.eta = Float.MIN_VALUE;
+		this.mxCalculateValuesInitialSigma();
+	}
+	
+	public IGMN(SimpleMatrix dataRange, double tau, double delta)
+	{
+		this(dataRange, tau, delta, dataRange.getNumElements() + 1, 2 * dataRange.getNumElements());
+	}
+	
+	/**
+	 * Algoritmo de aprendizagem da rede IGMN
+	 * 
+	 * @param x vetor a ser utilizado no aprendizado
+	 */
+	public void learn(SimpleMatrix x)
+	{
+		this.computeLikelihood(x);
+		
+		if (!this.hasAcceptableDistribution())
+		{
+			this.addComponent(x);
+			this.like.getMatrix().reshape(size, 1, true);
+			int i = size - 1;
+			this.like.set(i, 0, this.mvnpdf(x, this.means.get(i), this.invCovs.get(i), this.detCovs.get(i)) + this.eta);
+			this.updatePriors();
+			//printCoefficients(i);
+		}
+		this.computePosterior();
+		this.incrementalEstimation(x);
+		this.updatePriors();
+		this.removeSpuriousComponents();
+	}
+	
+	/**
+	 * Realiza call para rede
+	 * 
+	 * @param x vetor de entrada
+	 */
+	public void call(SimpleMatrix x)
+	{
+		this.computeLikelihood(x);
+		this.computePosterior();
+	}
+	
+	/**
+	 * Executa o algoritmo recall da IGMN
+	 * 
+	 * @param x vetor de entrada
+	 * @return vetor resultante do recall
+	 */
+	public SimpleMatrix recall(SimpleMatrix x)
+	{
+		int alpha = x.getNumElements();
+		int beta = dimension - alpha;
+		
+		SimpleMatrix pajs = new SimpleMatrix(size, 1);
+		List<SimpleMatrix> xm = new ArrayList<>();
+		
+		for(int i = 0; i < size; i++)
+		{			
+			SimpleMatrix invCovZ = this.invCovs.get(i).extractMatrix(alpha, alpha+beta, 0, alpha);
+			SimpleMatrix invCovW = this.invCovs.get(i).extractMatrix(alpha, alpha+beta, alpha, alpha+beta);
+			
+			SimpleMatrix meanA = this.means.get(i).extractMatrix(0, alpha, 0, 1);
+			SimpleMatrix meanB = this.means.get(i).extractMatrix(alpha, alpha+beta, 0, 1);
+			
+			SimpleMatrix xc = new SimpleMatrix(x);
+			xc.getMatrix().reshape(this.dimension, 1, true);
+			for (int j = 0; j < beta; j++) 
+				xc.set(j + alpha, this.means.get(i).get(j + alpha));
+			
+			pajs.set(i, 0, (this.mvnpdf(xc, this.means.get(i), this.invCovs.get(i), this.detCovs.get(i)) + eta));
+			
+			SimpleMatrix x_ = meanB.minus((invCovW.invert()).mult(invCovZ).mult(x.minus(meanA)));
+
+			xm.add(x_);
+		}
+		
+		pajs = pajs.divide(pajs.elementSum());
+		SimpleMatrix result = new SimpleMatrix(beta, 1);
+		for (int i = 0; i < xm.size(); i++)
+			result = result.plus(xm.get(i).scale(pajs.get(i)));
+		
+		return result;
+	}		
+	
+	/**
+	 * Calcula a verossimilhanca para cada componente <p(x|j)>
+	 * 
+	 * @param x vetor de entrada
+	 */
+	private void computeLikelihood(SimpleMatrix x)
+	{
+		this.like = new SimpleMatrix(size, 1);
+		for (int i = 0; i < size; i++)
+			this.like.set(i, 0, this.mvnpdf(x, this.means.get(i), this.invCovs.get(i), this.detCovs.get(i)) + eta);
+	}
+	
+	/**
+	 * Calcula a probabilidade a posteriori para cada componente <p(j|x)>
+	 */
+	private void computePosterior()
+	{
+		SimpleMatrix density = new SimpleMatrix(size, 1);
+		
+		for (int i = 0; i < size; i++)
+			density.set(i, 0, this.like.get(i) * this.priors.get(i));
+		
+		this.post = density.divide(density.elementSum());
+	}
+	
+	/**
+	 * Atualiza as probabilidades a priori de cada componente
+	 */
+	private void updatePriors()
+	{
+		double spSum = this.sps.elementSum();
+        this.priors = this.sps.divide(spSum);
+	}
+	
+	/**
+	 * Atualiza os parametros idade, acumulador de posteriori, media e matriz de covariancia
+	 * 
+	 * @param x vetor de entrada
+	 */
+	private void incrementalEstimation(SimpleMatrix x)
+	{
+		for (int i = 0; i < size; i++)
+		{
+			//Update age
+			this.vs.set(i, this.vs.get(i) + 1);
+			//Update accumulator of the posteriori probability
+			this.sps.set(i, this.sps.get(i) + this.post.get(i));
+			//Update mean
+			SimpleMatrix oldmeans = this.means.get(i).copy();
+			double w = this.post.get(i) / this.sps.get(i); //Learning rate
+			SimpleMatrix diff = x.minus(oldmeans).scale(w);
+			this.means.set(i, oldmeans.plus(diff));
+			diff = this.means.get(i).minus(oldmeans); //delta mu
+			SimpleMatrix diff2 = x.minus(this.means.get(i)); //e*
+			
+			//Update invert covariance
+			//Plus a rank-one update
+			SimpleMatrix invCov =  this.invCovs.get(i).copy();
+			SimpleMatrix v = diff2.scale(Math.sqrt(w)); //v = u = e*.sqrt(w)
+			SimpleMatrix tmp1 = invCov.scale(1.0 / (1.0 - w)); //A(t-1) / (1 - w)
+			SimpleMatrix tmp2 = tmp1.mult(v); // matrix D x 1
+			double tmp3 = 1 + tmp2.dot(v);			
+			invCov = tmp1.minus(tmp2.mult(tmp2.transpose()).scale(1.0 / tmp3));
+			//Substract a rank-one update
+			SimpleMatrix tmp4 = invCov.mult(diff); // matrix D x 1
+			double tmp5 = 1 - tmp4.dot(diff);
+			invCov = invCov.plus(tmp4.mult(tmp4.transpose()).scale(1.0 / tmp5));		
+			this.invCovs.set(i, invCov);
+			
+			//Update Determinant Covariance
+			//Plus a rank-one update
+			double detCov = this.detCovs.get(i);
+			detCov = detCov * Math.pow(1.0 - w, this.dimension) * (tmp3);
+			//Substract a rank-one update
+			detCov = detCov * tmp5;
+			this.detCovs.set(i, detCov);		
+		}
+	}	
+	
+	/**
+	 * Adiciona um novo componente na IGMN
+	 * 
+	 * @param x vetor que sera o centro do novo componente
+	 */
+	private void addComponent(SimpleMatrix x)
+	{
+		this.size += 1;
+		this.priors.getMatrix().reshape(size, 1, true);
+		this.priors.set(size - 1, 0, 1);
+		this.means.add(new SimpleMatrix(x));
+		this.invCovs.add(this.invSigmaIni);
+		this.detCovs.getMatrix().reshape(size, 1, true);
+		this.detCovs.set(size - 1, 0, this.detSigmaIni);
+		this.sps.getMatrix().reshape(size, 1, true);
+		this.sps.set(size - 1, 0, 1);
+		this.vs.getMatrix().reshape(size, 1, true);
+		this.vs.set(size - 1, 0, 1);
+	}
+	
+	/**
+	 * Remove componentes que sao considerados ruidosos.
+	 * O componente e removido caso sua idade seja maior que a idade minima <vMin>
+	 * e se sua ativacao for menor que a ativacao minima <spMin>
+	 */
+	private void removeSpuriousComponents()
+	{
+		for(int i = size - 1; i >= 0; i--)
+		{
+			if (this.vs.get(i) > this.vMin && this.sps.get(i) < this.spMin)
+			{
+		        MatrixUtil.removeElement(this.vs, i);
+		        MatrixUtil.removeElement(this.sps, i);
+		        MatrixUtil.removeElement(this.priors, i);
+				MatrixUtil.removeElement(this.detCovs, i);
+				this.means.remove(i);
+				this.invCovs.remove(i);
+				this.size -= 1;
+			}
+		}
+	}
+	
+	/**
+	 * 
+	 * @return <true> se o vetor de entrada tem verossimilhanca minima,
+	 * determinado pelo parametro <tau>, para algum componente,
+	 * <false> caso contrario 
+	 */
+	private boolean hasAcceptableDistribution()
+	{
+		for (int i = 0; i < size; i++)
+		{
+			double den = Math.pow(2 * Math.PI, dimension / 2.0) * Math.sqrt(this.detCovs.get(i));
+			double min = tau / den;
+			if (like.get(i) >= min)
+				return true;
+		}
+		
+        return false;
+	}	
+	
+	
+	/**
+	 * Realiza treinamento a partir de um conjunto de dados, onde
+	 * cada instancia e uma coluna da matriz
+	 * 
+	 * @param dataset o conjunto de treinamento
+	 */
+	public void train(SimpleMatrix dataset)
+	{
+		for(int i = 0; i < dataset.numCols(); i++)
+			learn(dataset.extractVector(false, i)); 
+	}
+	
+	/**
+	 * Classifica um vetor de entrada 
+	 * @param x vetor de entrada
+	 * @return vetor referente a classificacao do vetor de entrada
+	 */
+	public SimpleMatrix classify(SimpleMatrix x)
+	{
+		SimpleMatrix out = this.recall(x);
+        int i = MatrixUtil.maxElementIndex(out);
+        
+        SimpleMatrix y = new SimpleMatrix(1, this.dimension - x.getNumElements());
+        y.set(i, 1);
+        
+        return y;
+	}
+	
+	/**
+	* Realiza clusterizacao a partir de um conjunto de dados, onde 
+	* cada instancia e uma coluna da matriz
+	* 
+	* @param dataset o conjunto de dados
+	* @return rotulos para cada instancia do conjunto de dados de entrada
+	*/        
+	public SimpleMatrix cluster(SimpleMatrix dataset)
+	{
+		SimpleMatrix out = new SimpleMatrix(dataset.numCols(), 1);
+
+		for(int i = 0; i < dataset.numCols(); i++)
+		{
+			int index = classifyComponent(dataset.extractVector(false, i));
+			out.set(i, index);
+		}
+		return out;
+	}
+
+	/**
+	* Classifica um vetor de entrada 
+	* @param x vetor de entrada
+	* @return indice referente ao componente designado ao vetor de entrada
+	*/
+	public int classifyComponent(SimpleMatrix x)
+	{
+		call(x);
+		return MatrixUtil.maxElementIndex(this.post);
+	}
+    
+	/**
+	 * Reinicia a rede
+	 */
+	public void reset()
+	{
+		this.size = 0;
+		this.priors = new SimpleMatrix(0, 0);
+		this.means = new ArrayList<>();
+		this.sps = new SimpleMatrix(0, 0);
+		this.like = new SimpleMatrix(0, 0);
+		this.post = new SimpleMatrix(0, 0);
+		this.vs = new SimpleMatrix(0, 0);
+		this.invCovs = new ArrayList<>();
+		this.detCovs = new SimpleMatrix(0, 0);
+	}
+	
+	public SimpleMatrix getPriors()
+	{
+		return this.priors;
+	}
+
+	public List<SimpleMatrix> getMeans()
+	{
+		return this.means;
+	}
+
+	public List<SimpleMatrix> getInvCovs()
+	{
+		return this.invCovs;
+	}
+	
+	public SimpleMatrix getDetCovs()
+	{
+		return this.detCovs;
+	}
+	
+	public SimpleMatrix getSps()
+	{
+		return this.sps;
+	}
+
+	public SimpleMatrix getLike()
+	{
+		return this.like;
+	}
+
+	public SimpleMatrix getPost()
+	{
+		return this.post;
+	}
+
+	public SimpleMatrix getVs()
+	{
+		return this.vs;
+	}
+
+	public int getDimension()
+	{
+		return this.dimension;
+	}
+
+	public int getSize()
+	{
+		return this.size;
+	}
+
+	public SimpleMatrix getDataRange()
+	{
+		return this.dataRange;
+	}
+
+	public double getDelta()
+	{
+		return this.delta;
+	}
+
+	public double getTau()
+	{
+		return this.tau;
+	}
+
+	public double getSpMin()
+	{
+		return this.spMin;
+	}
+
+	public double getvMin()
+	{
+		return this.vMin;
+	}
+
+	/**
+	 * Calcula a funcao de densidade de probabilidade multivariada (multivariate probability density function)
+	 * 
+	 * @param x vetor de entrada
+	 * @param u vetor media
+	 * @param invCov inversa da matriz de covariancia
+	 * @param det determinante da matriz de covariancia
+	 * @return a densidade de probabilidade
+	 */
+	private double mvnpdf(SimpleMatrix x, SimpleMatrix u, SimpleMatrix invCov, double det)
+	{
+		double dim = x.getNumElements();
+		SimpleMatrix distance = x.minus(u);
+		
+		double pdf = Math.exp(-0.5 * distance.transpose().dot(invCov.mult(distance)))
+				/ (Math.pow(2 * Math.PI, dim / 2.0) * Math.sqrt(det));
+
+		pdf = Double.isNaN(pdf) ? 0 : pdf;
+		
+		return pdf;
+	}
+
+	private void mxCalculateValuesInitialSigma() 
+	{
+		SimpleMatrix newCov = new SimpleMatrix(dataRange.scale(delta));
+		SimpleMatrix sigma = MatrixUtil.diag(newCov.elementMult(newCov));
+		double determinant = 1;
+		
+		for(int i = 0; i < sigma.numCols(); i++)
+		{
+			determinant *= sigma.get(i, i);
+			sigma.set(i, i, 1 / sigma.get(i, i));
+		}
+		
+		this.invSigmaIni = new SimpleMatrix(sigma);
+		this.detSigmaIni = determinant;		
+	}	
+}
