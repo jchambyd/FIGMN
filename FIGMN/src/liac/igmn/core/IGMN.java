@@ -29,6 +29,7 @@
 package liac.igmn.core;
 import java.util.ArrayList;
 import java.util.List;
+import liac.igmn.util.ChiSquareUtils;
 import liac.igmn.util.MatrixUtil;
 import org.ejml.simple.SimpleMatrix;
 
@@ -66,6 +67,10 @@ public class IGMN
 	 * Armazena a idade de cada componente numa matriz coluna
 	 */
 	protected SimpleMatrix vs;
+	/**
+	 * Armazena as distancias de cada componente ao ultimo vetor de entrada
+	 */
+	protected SimpleMatrix distances;
 	/**
 	 * Armazena a dimensao do vetor de entrada
 	 */
@@ -106,6 +111,10 @@ public class IGMN
 	 * Determinante da matriz de covarianza inicial de cada componente
 	 */
 	protected double detSigmaIni;
+	/**
+	 * Chi-squared distribution with "D" degrees-of-freedom,
+	 */
+	protected double chisq;
 	
 	public IGMN(SimpleMatrix dataRange, double tau, double delta, double spMin, double vMin)
 	{
@@ -118,6 +127,7 @@ public class IGMN
 		this.detCovs = new SimpleMatrix(0, 0);
 		this.sps = new SimpleMatrix(0, 0);
 		this.like = new SimpleMatrix(0, 0);
+		this.distances = new SimpleMatrix(0, 0);
 		this.post = new SimpleMatrix(0, 0);
 		this.vs = new SimpleMatrix(0, 0);
 		this.delta = delta;
@@ -125,12 +135,18 @@ public class IGMN
 		this.spMin = spMin;
 		this.vMin = vMin;
 		this.eta = Float.MIN_VALUE;
+		this.chisq = ChiSquareUtils.chi2inv(1 - tau, this.dimension);
 		this.mxCalculateValuesInitialSigma();
 	}
 	
 	public IGMN(SimpleMatrix dataRange, double tau, double delta)
 	{
 		this(dataRange, tau, delta, dataRange.getNumElements() + 1, 2 * dataRange.getNumElements());
+	}
+	
+	public IGMN(double tau, double delta)
+	{
+		this((new SimpleMatrix(0, 0)), tau, delta);
 	}
 	
 	/**
@@ -142,19 +158,19 @@ public class IGMN
 	{
 		this.computeLikelihood(x);
 		
-		if (!this.hasAcceptableDistribution())
+		if (!this.hasAcceptableDistance(x))
 		{
 			this.addComponent(x);
 			this.like.getMatrix().reshape(size, 1, true);
+			this.distances.getMatrix().reshape(this.size, 1, true);
 			int i = size - 1;
-			this.like.set(i, 0, this.mvnpdf(x, this.means.get(i), this.invCovs.get(i), this.detCovs.get(i)) + this.eta);
+			this.like.set(i, 0, this.mvnpdf(x, i) + this.eta);
 			this.updatePriors();
-			//printCoefficients(i);
 		}
 		this.computePosterior();
 		this.incrementalEstimation(x);
 		this.updatePriors();
-		this.removeSpuriousComponents();
+		//this.removeSpuriousComponents();
 	}
 	
 	/**
@@ -195,7 +211,7 @@ public class IGMN
 			for (int j = 0; j < beta; j++) 
 				xc.set(j + alpha, this.means.get(i).get(j + alpha));
 			
-			pajs.set(i, 0, (this.mvnpdf(xc, this.means.get(i), this.invCovs.get(i), this.detCovs.get(i)) + eta));
+			pajs.set(i, 0, (this.mvnpdf(xc, i) + eta));
 			
 			SimpleMatrix x_ = meanB.minus((invCovW.invert()).mult(invCovZ).mult(x.minus(meanA)));
 
@@ -218,8 +234,19 @@ public class IGMN
 	private void computeLikelihood(SimpleMatrix x)
 	{
 		this.like = new SimpleMatrix(size, 1);
+		this.distances = new SimpleMatrix(size, 1);
 		for (int i = 0; i < size; i++)
-			this.like.set(i, 0, this.mvnpdf(x, this.means.get(i), this.invCovs.get(i), this.detCovs.get(i)) + eta);
+			this.like.set(i, 0, this.mvnpdf(x, i) + eta);
+	}
+	
+	private boolean hasAcceptableDistance(SimpleMatrix x)
+	{
+		for (int i = 0; i < size; i++)
+		{
+			if(this.distances.get(i) < this.chisq)
+				return true;			
+		}
+		return false;
 	}
 	
 	/**
@@ -499,7 +526,44 @@ public class IGMN
 	{
 		return this.vMin;
 	}
+	
+	public void setDelta(double delta)
+	{
+		this.delta = delta;
+	}
 
+	public void updateDataRange(SimpleMatrix dataRange)
+	{
+		this.dataRange = dataRange;
+		this.dimension = dataRange.getNumElements();
+		this.spMin = this.dimension + 1;
+		this.vMin = 2 * this.dimension;
+		this.chisq = ChiSquareUtils.chi2inv(1 - this.tau, this.dimension);
+		this.mxCalculateValuesInitialSigma();
+	}
+	
+	/**
+	 * Calcula a funcao de densidade de probabilidade multivariada (multivariate probability density function)
+	 * 
+	 * @param x vetor de entrada
+	 * @param component index of component
+	 * @return a densidade de probabilidade
+	 */
+	private double mvnpdf(SimpleMatrix x, int component)
+	{
+		double dim = x.getNumElements();
+		SimpleMatrix distance = x.minus(this.means.get(component));
+		
+		this.distances.set(component, distance.transpose().dot(this.invCovs.get(component).mult(distance)));
+		
+		double pdf = Math.exp(-0.5 * this.distances.get(component))
+				/ (Math.pow(2 * Math.PI, dim / 2.0) * Math.sqrt(this.detCovs.get(component)));
+
+		pdf = Double.isNaN(pdf) ? 0 : pdf;
+		
+		return pdf;
+	}
+	
 	/**
 	 * Calcula a funcao de densidade de probabilidade multivariada (multivariate probability density function)
 	 * 

@@ -13,7 +13,7 @@ public class ClassificationSample
 	{
 		try
 		{
-			Dataset dataset = DataLoader.loadARFF("data/iris.arff");
+			Dataset dataset = DataLoader.loadARFF("data/diabetes.arff");
 			DatasetFilter.normalize(dataset);
 						
 			IGMN igmn = new IGMN(dataset.getDataRange(), 0.1, 0.45);

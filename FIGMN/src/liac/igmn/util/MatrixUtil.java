@@ -171,4 +171,24 @@ public class MatrixUtil
 		}
 		return output;		
 	}
+	public static SimpleMatrix getDataRange(SimpleMatrix dataset)
+	{
+		SimpleMatrix min = new SimpleMatrix(dataset.numRows(), 1);
+		min.set(Double.POSITIVE_INFINITY);
+		SimpleMatrix max = new SimpleMatrix(dataset.numRows(), 1);
+		max.set(Double.NEGATIVE_INFINITY);
+		
+		for(int i = 0; i < dataset.numCols(); i++)
+		{
+			for(int j = 0; j < dataset.numRows(); j++)
+			{
+				double value =	dataset.get(j, i);
+				if(value < min.get(j, 0))
+					min.set(j, 0, value);
+				if(value > max.get(j, 0)) 
+					max.set(j, 0, value);
+			}
+		}		
+		return max.minus(min);
+	}
 }
