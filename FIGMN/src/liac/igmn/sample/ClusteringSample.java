@@ -31,7 +31,7 @@ public class ClusteringSample {
         {
             SimpleMatrix dataset = loadDataset("data/dist2.txt");
             
-            IGMN igmn = new IGMN(getDataRange(dataset.transpose()), 0.12, 0.35);
+            IGMN igmn = new IGMN(getDataRange(dataset.transpose()), 0.05, 0.5);
                         
             igmn.train(dataset.transpose());
             
