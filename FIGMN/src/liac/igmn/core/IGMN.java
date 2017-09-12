@@ -174,59 +174,6 @@ public class IGMN
 	}
 	
 	/**
-	 * Realiza call para rede
-	 * 
-	 * @param x vetor de entrada
-	 */
-	public void call(SimpleMatrix x)
-	{
-		this.computeLikelihood(x);
-		this.computePosterior();
-	}
-	
-	/**
-	 * Executa o algoritmo recall da IGMN
-	 * 
-	 * @param x vetor de entrada
-	 * @return vetor resultante do recall
-	 */
-	public SimpleMatrix recall(SimpleMatrix x)
-	{
-		int alpha = x.getNumElements();
-		int beta = dimension - alpha;
-		
-		SimpleMatrix pajs = new SimpleMatrix(size, 1);
-		List<SimpleMatrix> xm = new ArrayList<>();
-		
-		for(int i = 0; i < size; i++)
-		{			
-			SimpleMatrix invCovZ = this.invCovs.get(i).extractMatrix(alpha, alpha+beta, 0, alpha);
-			SimpleMatrix invCovW = this.invCovs.get(i).extractMatrix(alpha, alpha+beta, alpha, alpha+beta);
-			
-			SimpleMatrix meanA = this.means.get(i).extractMatrix(0, alpha, 0, 1);
-			SimpleMatrix meanB = this.means.get(i).extractMatrix(alpha, alpha+beta, 0, 1);
-			
-			SimpleMatrix xc = new SimpleMatrix(x);
-			xc.getMatrix().reshape(this.dimension, 1, true);
-			for (int j = 0; j < beta; j++) 
-				xc.set(j + alpha, this.means.get(i).get(j + alpha));
-			
-			pajs.set(i, 0, (this.mvnpdf(xc, i) + eta));
-			
-			SimpleMatrix x_ = meanB.minus((invCovW.invert()).mult(invCovZ).mult(x.minus(meanA)));
-
-			xm.add(x_);
-		}
-		
-		pajs = pajs.divide(pajs.elementSum());
-		SimpleMatrix result = new SimpleMatrix(beta, 1);
-		for (int i = 0; i < xm.size(); i++)
-			result = result.plus(xm.get(i).scale(pajs.get(i)));
-		
-		return result;
-	}		
-	
-	/**
 	 * Calcula a verossimilhanca para cada componente <p(x|j)>
 	 * 
 	 * @param x vetor de entrada
@@ -250,6 +197,26 @@ public class IGMN
 	}
 	
 	/**
+	 * Adiciona um novo componente na IGMN
+	 * 
+	 * @param x vetor que sera o centro do novo componente
+	 */
+	private void addComponent(SimpleMatrix x)
+	{
+		this.size += 1;
+		this.priors.getMatrix().reshape(size, 1, true);
+		this.priors.set(size - 1, 0, 1);
+		this.means.add(new SimpleMatrix(x));
+		this.invCovs.add(this.invSigmaIni);
+		this.detCovs.getMatrix().reshape(size, 1, true);
+		this.detCovs.set(size - 1, 0, this.detSigmaIni);
+		this.sps.getMatrix().reshape(size, 1, true);
+		this.sps.set(size - 1, 0, 1);
+		this.vs.getMatrix().reshape(size, 1, true);
+		this.vs.set(size - 1, 0, 1);
+	}
+	
+	/**
 	 * Calcula a probabilidade a posteriori para cada componente <p(j|x)>
 	 */
 	private void computePosterior()
@@ -260,15 +227,6 @@ public class IGMN
 			density.set(i, 0, this.like.get(i) * this.priors.get(i));
 		
 		this.post = density.divide(density.elementSum());
-	}
-	
-	/**
-	 * Atualiza as probabilidades a priori de cada componente
-	 */
-	private void updatePriors()
-	{
-		double spSum = this.sps.elementSum();
-        this.priors = this.sps.divide(spSum);
 	}
 	
 	/**
@@ -317,23 +275,12 @@ public class IGMN
 	}	
 	
 	/**
-	 * Adiciona um novo componente na IGMN
-	 * 
-	 * @param x vetor que sera o centro do novo componente
+	 * Atualiza as probabilidades a priori de cada componente
 	 */
-	private void addComponent(SimpleMatrix x)
+	private void updatePriors()
 	{
-		this.size += 1;
-		this.priors.getMatrix().reshape(size, 1, true);
-		this.priors.set(size - 1, 0, 1);
-		this.means.add(new SimpleMatrix(x));
-		this.invCovs.add(this.invSigmaIni);
-		this.detCovs.getMatrix().reshape(size, 1, true);
-		this.detCovs.set(size - 1, 0, this.detSigmaIni);
-		this.sps.getMatrix().reshape(size, 1, true);
-		this.sps.set(size - 1, 0, 1);
-		this.vs.getMatrix().reshape(size, 1, true);
-		this.vs.set(size - 1, 0, 1);
+		double spSum = this.sps.elementSum();
+        this.priors = this.sps.divide(spSum);
 	}
 	
 	/**
@@ -377,6 +324,57 @@ public class IGMN
         return false;
 	}	
 	
+	/**
+	 * Realiza call para rede
+	 * 
+	 * @param x vetor de entrada
+	 */
+	public void call(SimpleMatrix x)
+	{
+		this.computeLikelihood(x);
+		this.computePosterior();
+	}
+	
+	/**
+	 * Executa o algoritmo recall da IGMN
+	 * 
+	 * @param x vetor de entrada
+	 * @return vetor resultante do recall
+	 */
+	public SimpleMatrix recall(SimpleMatrix x)
+	{
+		int alpha = x.getNumElements();
+		int beta = dimension - alpha;
+		
+		SimpleMatrix pajs = new SimpleMatrix(size, 1);
+		List<SimpleMatrix> xm = new ArrayList<>();
+		
+		for(int i = 0; i < size; i++)
+		{	
+			SimpleMatrix blockZ = this.invCovs.get(i).extractMatrix(alpha, alpha+beta, 0, alpha);
+			SimpleMatrix blockW = this.invCovs.get(i).extractMatrix(alpha, alpha+beta, alpha, alpha+beta);
+			SimpleMatrix blockX = this.invCovs.get(i).extractMatrix(0, alpha, 0, alpha);
+			
+			SimpleMatrix meanA = this.means.get(i).extractMatrix(0, alpha, 0, 1);
+			SimpleMatrix meanB = this.means.get(i).extractMatrix(alpha, alpha+beta, 0, 1);
+			
+			SimpleMatrix invBlockW = blockW.invert();
+			SimpleMatrix invBlockA = blockX.minus(blockZ.transpose().mult(invBlockW).mult(blockZ));
+			
+			pajs.set(i, 0, this.mvnpdf(x, meanA, invBlockA, this.detCovs.get(i) * blockW.determinant())  + eta);
+			
+			SimpleMatrix x_ = meanB.minus((invBlockW).mult(blockZ).mult(x.minus(meanA)));
+			
+			xm.add(x_);
+		}
+		
+		pajs = pajs.divide(pajs.elementSum());
+		SimpleMatrix result = new SimpleMatrix(beta, 1);
+		for (int i = 0; i < xm.size(); i++)
+			result = result.plus(xm.get(i).scale(pajs.get(i)));
+		
+		return result;
+	}
 	
 	/**
 	 * Realiza treinamento a partir de um conjunto de dados, onde

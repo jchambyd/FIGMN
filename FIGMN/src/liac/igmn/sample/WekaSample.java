@@ -131,7 +131,9 @@ public class WekaSample {
 		ArrayList<String> namesDataSet = new ArrayList<>();
 		namesDataSet.add("data/iris.arff");
 		namesDataSet.add("data/dermatology.arff");
+		namesDataSet.add("data/vehicle.arff");
 		namesDataSet.add("data/diabetes.arff");
+		namesDataSet.add("data/ionosphere.arff");
 		
 		for(String name : namesDataSet)
 		{			

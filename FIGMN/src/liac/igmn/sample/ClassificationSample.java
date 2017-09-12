@@ -13,10 +13,10 @@ public class ClassificationSample
 	{
 		try
 		{
-			Dataset dataset = DataLoader.loadARFF("data/diabetes.arff");
+			Dataset dataset = DataLoader.loadARFF("data/vehicle.arff");
 			DatasetFilter.normalize(dataset);
 						
-			IGMN igmn = new IGMN(dataset.getDataRange(), 0.1, 0.45);
+			IGMN igmn = new IGMN(dataset.getDataRange(), Double.MIN_VALUE, 0.4);
 			
 			Evaluator evaluator = new Evaluator(true);
 			evaluator.crossValidation(igmn, dataset, 10, 1, false);
