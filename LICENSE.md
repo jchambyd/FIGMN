@@ -1,7 +1,3 @@
-Federal University of Rio Grande do Sul (UFRGS)
-Connectionist Artificial Intelligence Laboratory (LIAC)
-Jorge C. Chamby Diaz - jccdiaz@inf.ufrgs.br
-=============================================================================
 Copyright (c) 2017 Jorge C. Chamby Diaz, jchambyd at gmail dot com
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
