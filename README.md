@@ -9,5 +9,11 @@ This code implements the Fast Incremental Gaussian Mixture Network (FIGMN) propo
 * JDK 6+
 * EJML 0.19+
 * GNUPlot 4.2+ (for use graphics) 
+* JavaPlot (for use graphics) 
 * Weka 3.6.7+
-* Moa 2016.04+
+
+## Authors
+* **Jorge C. Chamby** - *Initial work* - [jchambyd](https://github.com/jchambyd)
+
+## License
+This project is licensed under the UFRGS License - see the [LICENSE.md](LICENSE.md) file for details
