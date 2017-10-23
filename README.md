@@ -16,4 +16,4 @@ This code implements the Fast Incremental Gaussian Mixture Network (FIGMN) propo
 * **Jorge C. Chamby** - *Initial work* - [jchambyd](https://github.com/jchambyd)
 
 ## License
-This project is licensed under the UFRGS License - see the [LICENSE.md](LICENSE.md) file for details
+This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details
