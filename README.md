@@ -13,7 +13,7 @@ This code implements the Fast Incremental Gaussian Mixture Network (FIGMN) propo
 * Weka 3.6.7+
 
 ## Authors
-* **Jorge C. Chamby** - *Initial work* - [jchambyd](https://github.com/jchambyd)
+* **Jorge C. Chamby-Diaz** - *Initial work* - [jchambyd](https://github.com/jchambyd)
 
 ## License
 This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details
